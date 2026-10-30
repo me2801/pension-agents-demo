@@ -1,0 +1,47 @@
+# Full stack: Postgres + backend (REST + MCP) + frontend (nginx).
+#   copy .env.example .env   (fill in the secrets)
+#   docker compose up --build
+# Then open http://localhost:8080 (UI), http://localhost:8000/docs (API docs), http://localhost:8000/mcp (MCP).
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: app
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DATABASE_URL: postgresql+psycopg://app:${POSTGRES_PASSWORD}@db:5432/app
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
+      PUBLIC_URL: http://localhost:8000
+      CORS_ORIGINS: '["http://localhost:8080", "http://localhost:5173"]'
+      MCP_ALLOWED_HOSTS: '["localhost:*", "127.0.0.1:*", "backend:*"]'
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+
+volumes:
+  pgdata:

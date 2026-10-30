@@ -1,0 +1,130 @@
+[project]
+name = "mnai-backend"
+version = "0.1.0"
+description = "Agent chat backend: REST + MCP over shared services and LangGraph workflows."
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.20.1",
+    "bcrypt>=5.0.0",
+    "fastapi>=0.162.0",
+    "httpx>=0.28.1",
+    "langchain-anthropic>=1.7.7",
+    "langgraph>=1.2.18",
+    "langgraph-checkpoint-postgres>=3.2.0",
+    "mcp>=2.3.0",
+    "psycopg[binary,pool]>=3.3.6",
+    "pydantic-settings>=2.16.2",
+    "pyjwt>=2.15.1",
+    "python-multipart>=0.0.32",
+    "sqlalchemy>=2.1.6",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "import-linter>=2.15",
+    "mypy>=2.4.1",
+    "pre-commit>=4.7.0",
+    "pytest>=9.2.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.3",
+    "testcontainers[postgres]>=4.15.0",
+]
+
+# ---------------------------------------------------------------------------
+# Quality gates. The same rules run in the editor hook, pre-commit and CI.
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F",  # pycodestyle + pyflakes
+    "I",            # import order
+    "B",            # likely bugs
+    "UP",           # modern syntax
+    "S",            # security (bandit rules)
+    "C90",          # cyclomatic complexity
+    "PLR",          # size limits: arguments, branches, statements, returns
+    "D",            # docstrings
+    "N",            # naming
+    "SIM",          # simplifications
+]
+ignore = [
+    "D105",     # magic methods need no docstring
+    "D107",     # __init__ is documented on the class
+    "PLR2004",  # magic values in comparisons are fine in this codebase
+    "SIM108",   # a plain if/else often reads better than a (nested) ternary
+]
+
+[tool.ruff.lint.isort]
+known-third-party = ["alembic"]  # not our alembic/ migrations folder
+
+[tool.ruff.lint.mccabe]
+max-complexity = 8
+
+[tool.ruff.lint.pylint]
+max-args = 5
+max-branches = 8
+max-statements = 30
+max-returns = 4
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D", "S101", "S105", "S106", "PLR0913"]  # asserts and fixture secrets are expected in tests
+"alembic/**" = ["D"]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+exclude = ["alembic/"]
+
+[[tool.mypy.overrides]]
+module = ["testcontainers.*"]
+ignore_missing_imports = true
+
+# Layering: a module may only import from layers below it.
+#   main -> api | mcp -> services -> workflows | db -> domain | config
+[tool.importlinter]
+root_package = "app"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture"
+type = "layers"
+layers = [
+    "app.main",
+    "app.api | app.mcp",
+    "app.services",
+    "app.workflows | app.db",
+    "app.domain | app.config",
+]
+
+[[tool.importlinter.contracts]]
+name = "Transport layers never touch the database or workflows directly"
+type = "forbidden"
+source_modules = ["app.api", "app.mcp"]
+forbidden_modules = ["app.db", "app.workflows", "sqlalchemy", "langgraph", "langchain_core"]
+allow_indirect_imports = true  # via the services layer is fine; direct imports are not
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: needs Docker (runs Postgres in a container)",
+    "e2e: needs the full stack running (E2E_BASE_URL)",
+]
+addopts = "-m 'not e2e'"
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = true

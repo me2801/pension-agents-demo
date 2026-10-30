@@ -1,0 +1,91 @@
+# The quality gate: protect `main` with branch protection requiring these jobs, so nothing merges
+# unless every check passes.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - name: Lint (complexity, docstrings, security rules)
+        run: uv run ruff check . && uv run ruff format --check .
+      - name: Type check (strict)
+        run: uv run mypy app scripts
+      - name: Architecture (layer contracts)
+        run: uv run lint-imports
+      - name: Dependency vulnerabilities
+        run: uvx pip-audit --strict --requirement <(uv export --frozen --no-dev --no-hashes --no-emit-project)
+      - name: Unit + integration tests (Postgres via Testcontainers), coverage >= 80%
+        run: uv run pytest --cov --cov-report=term
+      - name: OpenAPI spec is up to date
+        run: uv run python -m scripts.export_openapi openapi.json && git diff --exit-code openapi.json
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Generated API types match the backend's spec
+        run: npm run gen:api && git diff --exit-code src/api/schema.d.ts
+      - run: npm run lint
+      - run: npm run typecheck
+      - name: Unit tests, coverage >= 80%
+        run: npm test
+      - name: Dependency vulnerabilities
+        run: npm audit --audit-level=high
+      - run: npm run build
+
+  e2e:
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Start the stack with the scripted fake model
+        run: |
+          {
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)"
+            echo "JWT_SECRET=$(openssl rand -hex 32)"
+            echo "DEMO_PASSWORD=$(openssl rand -hex 12)"
+            echo "LLM_PROVIDER=fake"
+          } > .env
+          docker compose up --build --detach --wait
+          echo "E2E_PASSWORD=$(grep '^DEMO_PASSWORD=' .env | cut -d= -f2-)" >> "$GITHUB_ENV"
+      - name: API-level e2e
+        working-directory: backend
+        run: uv sync --frozen && uv run pytest -m e2e tests/e2e
+      - name: Browser e2e (Playwright)
+        working-directory: frontend
+        run: npm ci && npx playwright install --with-deps chromium && npx playwright test
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report

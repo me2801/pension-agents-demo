@@ -1,0 +1,59 @@
+# Git hooks: fast feedback before a commit. CI runs the same checks and is the real gate.
+#   uv run --project backend pre-commit install
+# The local hooks call the project's own tools, so versions come from uv.lock / package-lock.json.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-added-large-files
+        exclude: (uv\.lock|package-lock\.json)$  # lock files are large by nature
+      - id: detect-private-key
+      - id: check-merge-conflict
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: backend-ruff
+        name: backend - ruff (lint, complexity, docstrings, security)
+        entry: uv run --directory backend ruff check .
+        language: system
+        files: ^backend/
+        pass_filenames: false
+      - id: backend-format
+        name: backend - ruff format
+        entry: uv run --directory backend ruff format --check .
+        language: system
+        files: ^backend/
+        pass_filenames: false
+      - id: backend-mypy
+        name: backend - mypy (strict)
+        entry: uv run --directory backend mypy app scripts
+        language: system
+        files: ^backend/
+        pass_filenames: false
+      - id: backend-layers
+        name: backend - import-linter (layered architecture)
+        entry: uv run --directory backend lint-imports
+        language: system
+        files: ^backend/app/
+        pass_filenames: false
+      - id: frontend-lint
+        name: frontend - eslint (lint, complexity)
+        entry: npm --prefix frontend run lint
+        language: system
+        files: ^frontend/
+        pass_filenames: false
+      - id: frontend-typecheck
+        name: frontend - tsc (strict)
+        entry: npm --prefix frontend run typecheck
+        language: system
+        files: ^frontend/
+        pass_filenames: false
