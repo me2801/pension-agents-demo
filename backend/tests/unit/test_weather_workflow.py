@@ -8,8 +8,8 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from app.domain.models import Reply, Step
 from app.workflows import weather
-from app.workflows.fake_llm import FakeChatModel
 from app.workflows.weather import WeatherWorkflow, get_forecast
+from tests.fakes.fake_llm import FakeChatModel
 
 GEO = {"results": [{"name": "Utrecht", "country": "Netherlands", "latitude": 52.1, "longitude": 5.1}]}
 CURRENT = {
@@ -53,7 +53,9 @@ def test_agent_calls_the_tool_and_answers(monkeypatch: pytest.MonkeyPatch) -> No
         "`get_current_weather` returned data",
     ]
     assert isinstance(reply, Reply)
+    assert "In Utrecht, Netherlands it's 14°C right now" in reply.text
     assert "overcast" in reply.text
+    assert "No umbrella needed." in reply.text
 
 
 def test_unknown_city_is_reported_to_the_model(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -61,7 +63,7 @@ def test_unknown_city_is_reported_to_the_model(monkeypatch: pytest.MonkeyPatch) 
     *steps, reply = WeatherWorkflow(FakeChatModel(), InMemorySaver()).stream("w2", "Weather in Paris?")
     assert "`get_current_weather` failed" in [s.text for s in steps if isinstance(s, Step)]
     assert isinstance(reply, Reply)
-    assert "Could not find" in reply.text
+    assert "couldn't find that location" in reply.text
 
 
 def test_forecast_tool_maps_days(monkeypatch: pytest.MonkeyPatch) -> None:

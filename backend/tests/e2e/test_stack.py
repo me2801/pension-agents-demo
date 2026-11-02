@@ -1,6 +1,7 @@
-"""API-level end-to-end tests against the full running stack (through nginx), with LLM_PROVIDER=fake.
+"""API-level end-to-end tests against the full running stack (through nginx), with the scripted fake model.
 
-Run:  E2E_BASE_URL=http://localhost:8080 E2E_PASSWORD=... uv run pytest -m e2e
+Start the stack with docker-compose.e2e.yml (see the README), then run:
+    E2E_BASE_URL=http://localhost:8080 E2E_PASSWORD=... uv run pytest -m e2e
 """
 
 import json
@@ -45,7 +46,7 @@ def test_mcp_through_the_proxy(http: httpx.Client) -> None:
     response = http.post("/mcp", json=body, headers={"Accept": "application/json, text/event-stream"})
     response.raise_for_status()
     workflows = response.json()["result"]["structuredContent"]["result"]
-    assert {w["id"] for w in workflows} == {"weather", "support"}
+    assert {w["id"] for w in workflows} == {"weather", "support", "policy"}
 
 
 def test_requests_without_a_token_are_refused() -> None:

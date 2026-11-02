@@ -4,8 +4,9 @@ import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app.domain.models import Reply, Step
-from app.workflows.fake_llm import FakeChatModel
 from app.workflows.support import SupportWorkflow, parse_decision
+from tests.conftest import shared_knowledge_base
+from tests.fakes.fake_llm import FakeChatModel
 
 EMAIL = SupportWorkflow.examples["Retire earlier (NL)"]
 COMPLAINT = SupportWorkflow.examples["Complaint (NL)"]
@@ -21,7 +22,7 @@ def turn(workflow: SupportWorkflow, thread: str, message: str) -> tuple[list[str
 
 @pytest.fixture
 def workflow() -> SupportWorkflow:
-    return SupportWorkflow(FakeChatModel(review_rejections=1), InMemorySaver())
+    return SupportWorkflow(FakeChatModel(review_rejections=1), InMemorySaver(), shared_knowledge_base())
 
 
 def test_email_is_drafted_reviewed_and_waits_for_approval(workflow: SupportWorkflow) -> None:
@@ -36,7 +37,8 @@ def test_email_is_drafted_reviewed_and_waits_for_approval(workflow: SupportWorkf
         "review: approved",
     ]
     assert reply.choices == ["approve", "reject"]
-    assert "(revised)" in reply.text
+    assert "> Dear J. de Vries," in reply.text  # the draft uses the looked-up member data
+    assert "taken your feedback into account" in reply.text  # the rewrite addressed the review
 
 
 def test_approve_sends_the_draft(workflow: SupportWorkflow) -> None:
@@ -78,7 +80,7 @@ def test_reject_sends_nothing_and_next_email_starts_fresh(workflow: SupportWorkf
 
 
 def test_complaint_is_escalated_to_a_human() -> None:
-    workflow = SupportWorkflow(FakeChatModel(), InMemorySaver())
+    workflow = SupportWorkflow(FakeChatModel(), InMemorySaver(), shared_knowledge_base())
     steps, reply = turn(workflow, "t2", COMPLAINT)
     assert steps == ["classify: complaint, member 100234"]
     assert reply.choices == []
@@ -88,7 +90,7 @@ def test_complaint_is_escalated_to_a_human() -> None:
 
 
 def test_reviewer_concerns_are_shown_when_the_revision_cap_is_hit() -> None:
-    workflow = SupportWorkflow(FakeChatModel(review_rejections=99), InMemorySaver())
+    workflow = SupportWorkflow(FakeChatModel(review_rejections=99), InMemorySaver(), shared_knowledge_base())
     steps, reply = turn(workflow, "t3", EMAIL)
     assert steps.count("review: needs changes") == 3  # first draft + MAX_REVISIONS rewrites
     assert "reviewer still has concerns" in reply.text

@@ -32,7 +32,7 @@ def test_mcp_lists_the_tools(client: TestClient, auth_headers: dict[str, str]) -
 
 def test_mcp_conversation_is_shared_with_the_rest_api(client: TestClient, auth_headers: dict[str, str]) -> None:
     workflows = call_tool(client, auth_headers, "list_workflows")
-    assert {w["id"] for w in workflows["result"]} == {"weather", "support"}
+    assert {w["id"] for w in workflows["result"]} == {"weather", "support", "policy"}
 
     answer = call_tool(client, auth_headers, "send_message", workflow_id="support", message="Een klacht! Lid 100234")
     assert "never answered by AI" in answer["message"]["content"]

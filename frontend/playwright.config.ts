@@ -1,4 +1,4 @@
-// Browser tests against the full running stack (docker compose with LLM_PROVIDER=fake).
+// Browser tests against the full running stack (docker compose with the e2e override: scripted fake model).
 import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({

@@ -35,7 +35,7 @@ repos:
         pass_filenames: false
       - id: backend-mypy
         name: backend - mypy (strict)
-        entry: uv run --directory backend mypy app scripts
+        entry: uv run --directory backend mypy app scripts evals
         language: system
         files: ^backend/
         pass_filenames: false

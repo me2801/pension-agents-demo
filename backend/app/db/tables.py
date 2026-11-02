@@ -4,8 +4,11 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import JSON, DateTime, ForeignKey, String, Text, Uuid
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from app.rag.embeddings import EMBEDDING_DIM
 
 
 def utcnow() -> datetime:
@@ -39,6 +42,20 @@ class ConversationRow(Base):
     title: Mapped[str] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class KnowledgeChunkRow(Base):
+    """A chunk of a knowledge document with its embedding (pgvector)."""
+
+    __tablename__ = "knowledge_chunks"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    key: Mapped[str] = mapped_column(String(64), unique=True)  # content hash, see Chunk.key
+    source: Mapped[str] = mapped_column(String(200), index=True)
+    title: Mapped[str] = mapped_column(String(300))
+    content: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIM))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class MessageRow(Base):

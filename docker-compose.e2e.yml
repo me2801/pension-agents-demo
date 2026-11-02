@@ -1,0 +1,10 @@
+# End-to-end override: the backend runs with the scripted fake LLM from backend/tests/fakes injected,
+# so the full stack works without an Anthropic key. The production image contains no test code;
+# the tests are mounted in here.
+#   docker compose -f docker-compose.yml -f docker-compose.e2e.yml up --build
+
+services:
+  backend:
+    volumes:
+      - ./backend/tests:/app/tests:ro
+    command: ["sh", "-c", "alembic upgrade head && python -m app.cli ingest && uvicorn tests.fakes.app:create_fake_app --factory --host 0.0.0.0 --port 8000"]

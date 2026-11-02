@@ -52,10 +52,24 @@ test("a complaint is handed to a human", async ({ page }) => {
   await expect(page.getByText("Sent:")).toBeVisible();
 });
 
+test("the policy assistant answers from the documents and cites them", async ({ page }) => {
+  await logIn(page);
+  await page.getByRole("combobox").selectOption({ label: "Policy assistant" });
+  await page.getByRole("button", { name: "Partner pension (NL)" }).click(); // a Dutch question, English documents
+
+  await expect(page.getByText("Sources", { exact: true })).toBeVisible();
+  await expect(page.getByText("partner-pension.md").first()).toBeVisible();
+
+  await page.getByRole("textbox", { name: "Message", exact: true }).fill("Can you recommend a good pizza place?");
+  await page.getByRole("textbox", { name: "Message", exact: true }).press("Enter");
+  await expect(page.getByText("I couldn't find this in the policy documents")).toBeVisible();
+});
+
 test("the weather agent answers", async ({ page }) => {
   await logIn(page);
   await page.getByRole("button", { name: "Umbrella in Utrecht?" }).click();
-  await expect(page.getByText("(fake model)")).toBeVisible();
+  await expect(page.getByText(/°C right now/)).toBeVisible();
+  await expect(page.getByText(/umbrella/i).last()).toBeVisible();
   await page.getByRole("button", { name: "Log out" }).click();
   await expect(page.getByRole("button", { name: "Log in" })).toBeVisible();
 });

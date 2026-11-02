@@ -7,23 +7,28 @@ from langchain_core.language_models import BaseChatModel
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from app.config import Settings
+from app.rag.base import KnowledgeBase
 from app.workflows.base import ChatWorkflow
-from app.workflows.fake_llm import FakeChatModel
+from app.workflows.policy_assistant import PolicyAssistantWorkflow
 from app.workflows.support import SupportWorkflow
 from app.workflows.weather import WeatherWorkflow
 
-WORKFLOW_CLASSES: tuple[type[WeatherWorkflow | SupportWorkflow], ...] = (WeatherWorkflow, SupportWorkflow)
-
 
 def create_chat_model(settings: Settings) -> BaseChatModel:
-    """The chat model all workflows use. The fake provider is refused in production."""
-    if settings.llm_provider == "fake":
-        if settings.environment == "production":
-            raise ValueError("LLM_PROVIDER=fake is not allowed in production")
-        return FakeChatModel()
-    return ChatAnthropic(model=settings.llm_model, max_tokens=16000)
+    """The chat model all workflows use. Without an API key it is never invoked (ChatService says so)."""
+    return ChatAnthropic(model=settings.llm_model, max_tokens=16000, api_key=settings.anthropic_api_key)
 
 
-def build_workflows(llm: BaseChatModel, checkpointer: BaseCheckpointSaver[Any]) -> dict[str, ChatWorkflow]:
+def build_workflows(
+    llm: BaseChatModel,
+    checkpointer: BaseCheckpointSaver[Any],
+    knowledge: KnowledgeBase,
+    rag_min_score: float,
+) -> dict[str, ChatWorkflow]:
     """Instantiate every registered workflow, keyed by id."""
-    return {cls.id: cls(llm, checkpointer) for cls in WORKFLOW_CLASSES}
+    workflows: list[ChatWorkflow] = [
+        WeatherWorkflow(llm, checkpointer),
+        SupportWorkflow(llm, checkpointer, knowledge),
+        PolicyAssistantWorkflow(llm, checkpointer, knowledge, rag_min_score),
+    ]
+    return {workflow.id: workflow for workflow in workflows}

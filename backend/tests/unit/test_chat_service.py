@@ -67,6 +67,14 @@ def test_a_turn_streams_started_steps_done_and_stores_the_transcript(chat: ChatS
     assert chat.list_conversations(demo_user)[0].title == "hello"
 
 
+def test_without_a_model_the_chat_says_so(container: Container, demo_user: User) -> None:
+    chat = ChatService(container.chat._conversations, {"echo": EchoWorkflow()}, model_configured=False)
+    conversation = chat.start_conversation(demo_user, "echo")
+    events = list(chat.send_message(demo_user, conversation.id, "hello"))
+    assert [type(e) for e in events] == [ChatEventStarted, ChatEventError]
+    assert "ANTHROPIC_API_KEY" in chat.get_messages(demo_user, conversation.id)[-1].content
+
+
 def test_workflow_failure_becomes_a_safe_error_message(chat: ChatService, demo_user: User) -> None:
     conversation = chat.start_conversation(demo_user, "broken")
     error = list(chat.send_message(demo_user, conversation.id, "hi"))[-1]

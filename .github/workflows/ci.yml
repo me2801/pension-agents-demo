@@ -16,20 +16,30 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    env:
+      FASTEMBED_CACHE_PATH: ~/.cache/fastembed
+      MLFLOW_DISABLE_AGENT_HINT: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+      - name: Cache the embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/fastembed
+          key: fastembed-paraphrase-multilingual-MiniLM-L12-v2
       - run: uv sync --frozen
       - name: Lint (complexity, docstrings, security rules)
         run: uv run ruff check . && uv run ruff format --check .
       - name: Type check (strict)
-        run: uv run mypy app scripts
+        run: uv run mypy app scripts evals
       - name: Architecture (layer contracts)
         run: uv run lint-imports
       - name: Dependency vulnerabilities
         run: uvx pip-audit --strict --requirement <(uv export --frozen --no-dev --no-hashes --no-emit-project)
       - name: Unit + integration tests (Postgres via Testcontainers), coverage >= 80%
         run: uv run pytest --cov --cov-report=term
+      - name: RAG retrieval evaluation (hit rate, MRR, off-topic declined >= 0.85; logged to MLflow)
+        run: uv run python -m evals.rag_eval
       - name: OpenAPI spec is up to date
         run: uv run python -m scripts.export_openapi openapi.json && git diff --exit-code openapi.json
 
@@ -65,15 +75,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Start the stack with the scripted fake model
+      - name: Start the stack with the scripted fake model (injected from tests/fakes)
         run: |
           {
             echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)"
             echo "JWT_SECRET=$(openssl rand -hex 32)"
             echo "DEMO_PASSWORD=$(openssl rand -hex 12)"
-            echo "LLM_PROVIDER=fake"
           } > .env
-          docker compose up --build --detach --wait
+          docker compose -f docker-compose.yml -f docker-compose.e2e.yml up --build --detach --wait
           echo "E2E_PASSWORD=$(grep '^DEMO_PASSWORD=' .env | cut -d= -f2-)" >> "$GITHUB_ENV"
       - name: API-level e2e
         working-directory: backend
@@ -83,7 +92,7 @@ jobs:
         run: npm ci && npx playwright install --with-deps chromium && npx playwright test
       - name: Logs on failure
         if: failure()
-        run: docker compose logs
+        run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml logs
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

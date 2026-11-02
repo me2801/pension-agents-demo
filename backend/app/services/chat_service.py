@@ -30,14 +30,23 @@ logger = logging.getLogger(__name__)
 
 NEW_TITLE = "New conversation"
 TITLE_LENGTH = 60
+MODEL_NOT_CONFIGURED = (
+    "⚠️ No AI model is configured: `ANTHROPIC_API_KEY` is not set. Add it to `.env` and restart the backend."
+)
 
 
 class ChatService:
     """Runs chat turns against the registered workflows and stores the transcript."""
 
-    def __init__(self, conversations: ConversationRepository, workflows: dict[str, ChatWorkflow]):
+    def __init__(
+        self,
+        conversations: ConversationRepository,
+        workflows: dict[str, ChatWorkflow],
+        model_configured: bool = True,
+    ):
         self._conversations = conversations
         self._workflows = workflows
+        self._model_configured = model_configured
 
     def list_workflows(self) -> list[WorkflowInfo]:
         """All available workflows."""
@@ -71,6 +80,11 @@ class ChatService:
         if conversation.title == NEW_TITLE:
             self._conversations.rename(conversation_id, content[:TITLE_LENGTH])
         yield ChatEventStarted(message=self._conversations.add_message(conversation_id, "user", content))
+        if not self._model_configured:  # say so plainly instead of failing inside the workflow
+            yield ChatEventError(
+                message=self._conversations.add_message(conversation_id, "assistant", MODEL_NOT_CONFIGURED)
+            )
+            return
         steps: list[str] = []
         try:
             reply = yield from self._run(conversation, content, steps)

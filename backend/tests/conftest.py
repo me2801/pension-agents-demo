@@ -1,6 +1,12 @@
-"""Shared fixtures: an app wired with SQLite in memory, an in-memory checkpointer and the fake LLM."""
+"""Shared fixtures: an app wired with SQLite in memory, an in-memory checkpointer, an in-memory
+knowledge base (lexical test embeddings) and the fake LLM from tests/fakes."""
 
+import os
 from collections.abc import Iterator
+from functools import cache
+from pathlib import Path
+
+os.environ.setdefault("MLFLOW_DISABLE_AGENT_HINT", "1")
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,13 +20,31 @@ from app.config import Settings
 from app.db.repositories import ConversationRepository, UserRepository
 from app.db.tables import Base
 from app.main import create_app
+from app.rag.documents import load_chunks
+from app.rag.embeddings import HashingEmbeddings
+from app.rag.memory import InMemoryKnowledgeBase
 from app.services.auth_service import AuthService
 from app.services.chat_service import ChatService
 from app.services.container import Container
-from app.workflows.fake_llm import FakeChatModel
 from app.workflows.registry import build_workflows
+from tests.fakes.fake_llm import FakeChatModel
 
 PASSWORD = "correct horse battery staple"
+KNOWLEDGE_DIR = Path(__file__).parent.parent / "knowledge"
+TEST_MIN_SCORE = 0.1  # lexical test embeddings score lower than the real model
+
+
+@cache
+def shared_knowledge_base() -> InMemoryKnowledgeBase:
+    """The real knowledge documents, embedded with the deterministic test embeddings (built once)."""
+    knowledge = InMemoryKnowledgeBase(HashingEmbeddings(), HashingEmbeddings.model_name)
+    knowledge.sync(load_chunks(KNOWLEDGE_DIR))
+    return knowledge
+
+
+@pytest.fixture
+def knowledge() -> InMemoryKnowledgeBase:
+    return shared_knowledge_base()
 
 
 @pytest.fixture
@@ -29,20 +53,22 @@ def settings() -> Settings:
         environment="test",
         database_url="sqlite://",
         jwt_secret=SecretStr("test-secret-that-is-at-least-32-characters-long"),
-        llm_provider="fake",
         demo_password=SecretStr(PASSWORD),
         mcp_allowed_hosts=["testserver"],
+        rag_min_score=TEST_MIN_SCORE,
     )
 
 
 def build_test_container(settings: Settings, llm: FakeChatModel | None = None) -> Container:
-    """Same wiring as production, but SQLite in memory + InMemorySaver + fake LLM."""
+    """Same wiring as production, but SQLite in memory + InMemorySaver + in-memory knowledge + fake LLM."""
     engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
     sessions = sessionmaker(engine, expire_on_commit=False)
     auth = AuthService(UserRepository(sessions), settings)
     auth.ensure_user(settings.demo_username, PASSWORD)
-    workflows = build_workflows(llm or FakeChatModel(), InMemorySaver())
+    workflows = build_workflows(
+        llm or FakeChatModel(), InMemorySaver(), shared_knowledge_base(), settings.rag_min_score
+    )
     chat = ChatService(ConversationRepository(sessions), workflows)
     return Container(settings=settings, auth=auth, chat=chat, closers=[engine.dispose])
 

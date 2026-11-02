@@ -1,8 +1,9 @@
-"""A deterministic stand-in for Claude, for tests and end-to-end runs (LLM_PROVIDER=fake).
+"""A deterministic stand-in for Claude, for tests and end-to-end runs (injected, never part of the app).
 
 It is a real LangChain chat model, so workflows run unchanged; only the answers are scripted.
 """
 
+import json
 import re
 from collections.abc import Callable, Sequence
 from typing import Any
@@ -18,11 +19,46 @@ from pydantic import BaseModel, PrivateAttr
 from app.workflows.support import Classification, Review
 
 KNOWN_CITIES = ("Amsterdam", "Barcelona", "Paris", "Utrecht")
+WET_CONDITIONS = ("rain", "drizzle", "shower", "thunder", "snow")
+DEMO_NOTE = "\n\n_Demo mode: scripted answer. Configure an Anthropic API key for answers from Claude._"
 
 
 def _as_text(value: LanguageModelInput) -> str:
     """Flatten a model input to plain text."""
     return value if isinstance(value, str) else str(value)
+
+
+def _weather_answer(tool: ToolMessage) -> str:
+    """Turn the weather tool's result into a short, practical answer."""
+    if tool.status == "error":
+        return "Sorry, I couldn't find that location. Could you check the spelling?" + DEMO_NOTE
+    data = json.loads(str(tool.content))
+    wet = any(word in data["conditions"] for word in WET_CONDITIONS)
+    advice = "Take an umbrella." if wet else "No umbrella needed."
+    return (
+        f"In {data['location']} it's {data['temperature_c']:.0f}°C right now "
+        f"(feels like {data['feels_like_c']:.0f}°C) with {data['conditions']} "
+        f"and a wind of {data['wind_kmh']:.0f} km/h. {advice}" + DEMO_NOTE
+    )
+
+
+def _rag_answer(system_prompt: str) -> str:
+    """Answer by quoting the first sentence of the best source, with a citation."""
+    source = re.search(r"SOURCES:\n\[1\] [^\n]+\n(.+?\.)(?:\s|$)", system_prompt, re.DOTALL)
+    if not source:
+        return "The sources don't answer this question." + DEMO_NOTE
+    return f"According to the policy documents: {' '.join(source.group(1).split())} [1]" + DEMO_NOTE
+
+
+def _draft_text(prompt: str) -> str:
+    """A reply letter built from the member data and the most relevant policy in the prompt."""
+    name = re.search(r"'name': '([^']+)'", prompt)
+    policy = re.search(r"POLICIES:\n- [^:\n]+: ([^\n]+)", prompt)
+    greeting = f"Dear {name.group(1)}," if name else "Dear member,"
+    answer = policy.group(1) if policy else "We have received your question and will get back to you shortly."
+    answer = answer[:1].upper() + answer[1:]
+    follow_up = "\n\nWe have also taken your feedback into account." if "FEEDBACK TO ADDRESS" in prompt else ""
+    return f"{greeting}\n\nThank you for your email. {answer}{follow_up}\n\nKind regards,\nMember Service"
 
 
 class FakeChatModel(BaseChatModel):
@@ -43,7 +79,12 @@ class FakeChatModel(BaseChatModel):
         run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        message = self._tool_turn(messages) if self.tools_bound else self._draft(messages[-1])
+        if self.tools_bound:
+            message = self._tool_turn(messages)
+        elif "SOURCES:" in str(messages[0].text):  # the policy assistant's RAG prompt
+            message = AIMessage(_rag_answer(str(messages[0].text)))
+        else:
+            message = self._draft(messages[-1])
         return ChatResult(generations=[ChatGeneration(message=message)])
 
     def bind_tools(
@@ -73,15 +114,14 @@ class FakeChatModel(BaseChatModel):
         """First ask for the weather tool, then answer from its result."""
         last = messages[-1]
         if isinstance(last, ToolMessage):
-            return AIMessage(f"(fake model) Based on `{last.name}`: {str(last.content)[:200]}")
+            return AIMessage(_weather_answer(last))
         city = next((c for c in KNOWN_CITIES if c.lower() in str(last.text).lower()), "Utrecht")
         return AIMessage("", tool_calls=[{"name": "get_current_weather", "args": {"city": city}, "id": "fake-1"}])
 
     @staticmethod
     def _draft(prompt: BaseMessage) -> AIMessage:
-        """A canned reply draft."""
-        revised = " (revised)" if "FEEDBACK TO ADDRESS" in str(prompt.text) else ""
-        return AIMessage(f"Dear member,\n\nThank you for your email. This is a fake draft{revised}.\n\nMember Service")
+        """A reply draft (rewrites acknowledge the feedback)."""
+        return AIMessage(_draft_text(str(prompt.text)))
 
     @staticmethod
     def _classify(text: str) -> Classification:

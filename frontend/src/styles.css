@@ -70,6 +70,8 @@ input, select, textarea {
 .message { max-width: 75ch; padding: 0.6rem 1rem; border-radius: 12px; background: var(--panel); border: 1px solid var(--border); overflow-wrap: anywhere; }
 .message.user { align-self: flex-end; background: var(--user); }
 .message blockquote { margin: 0.5rem 0; padding-left: 0.8rem; border-left: 3px solid var(--border); color: var(--muted); white-space: pre-wrap; }
+.message table { border-collapse: collapse; margin: 0.5rem 0; display: block; overflow-x: auto; }
+.message th, .message td { padding: 0.3rem 0.7rem; border: 1px solid var(--border); text-align: left; }
 .message details summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; }
 .steps { margin: 0.3rem 0; padding-left: 1.2rem; color: var(--muted); font-size: 0.85rem; }
 .steps p { margin: 0; }

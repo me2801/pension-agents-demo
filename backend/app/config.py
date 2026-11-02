@@ -1,6 +1,7 @@
 """Application settings, read from environment variables (and a .env file in development)."""
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator
@@ -22,18 +23,27 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173"]
     mcp_allowed_hosts: list[str] = ["localhost:*", "127.0.0.1:*"]
 
-    llm_provider: Literal["anthropic", "fake"] = "anthropic"
     llm_model: str = "claude-opus-5-5"
+    anthropic_api_key: SecretStr | None = Field(default=None, description="Without it, chats say no model is set up")
+
+    knowledge_dir: Path = Path("knowledge")
+    embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    embedding_cache_dir: str | None = Field(default=None, description="Where the embedding model is stored")
+    # Calibrated with evals/rag_eval.py: lowest relevant question 0.36, highest off-topic one 0.32.
+    rag_min_score: float = Field(default=0.35, description="Passages below this similarity are ignored")
+
+    mlflow_tracking_uri: str | None = Field(default=None, description="Tracing is off when unset")
+    mlflow_experiment: str = "agent-chat"
 
     demo_username: str = "demo"
     demo_password: SecretStr | None = Field(
         default=None, min_length=8, description="If set, a demo user with this password is created at startup"
     )
 
-    @field_validator("demo_password", mode="before")
+    @field_validator("demo_password", "anthropic_api_key", mode="before")
     @classmethod
     def _empty_means_none(cls, value: object) -> object:
-        """An empty DEMO_PASSWORD (e.g. from docker compose) means: no demo user."""
+        """An empty value (e.g. from docker compose) means: not set."""
         return None if value == "" else value
 
     @property

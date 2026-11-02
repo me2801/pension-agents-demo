@@ -24,8 +24,9 @@ from langgraph.types import Command, interrupt
 from pydantic import BaseModel, Field
 
 from app.domain.models import Reply, Step
+from app.rag.base import KnowledgeBase
 from app.workflows.base import ChatWorkflow
-from app.workflows.support_data import find_member, search_policies
+from app.workflows.support_data import find_member
 
 MAX_REVISIONS = 2
 APPROVAL_CHOICES = ["approve", "reject"]
@@ -115,8 +116,9 @@ class SupportWorkflow(ChatWorkflow):
         ),
     }
 
-    def __init__(self, llm: BaseChatModel, checkpointer: BaseCheckpointSaver[Any]):
+    def __init__(self, llm: BaseChatModel, checkpointer: BaseCheckpointSaver[Any], knowledge: KnowledgeBase):
         self._llm = llm
+        self._knowledge = knowledge
         self._classifier = llm.with_structured_output(Classification, method="json_schema")
         self._reviewer = llm.with_structured_output(Review, method="json_schema")
         self._graph = self._build_graph().compile(checkpointer=checkpointer)
@@ -177,11 +179,11 @@ class SupportWorkflow(ChatWorkflow):
         member = find_member(state.get("member_id"))
         return {"member": member, "audit_log": [f"lookup_member: {'found' if member else 'not found'}"]}
 
-    @staticmethod
-    def _search_policy(state: State) -> dict[str, Any]:
-        """Retrieve the policies relevant to the question."""
-        hits = search_policies(state["query_en"])
-        return {"policies": hits, "audit_log": [f"search_policy: {len(hits)} snippets"]}
+    def _search_policy(self, state: State) -> dict[str, Any]:
+        """Retrieve the policy passages relevant to the email (RAG, same knowledge base as the assistant)."""
+        hits = self._knowledge.search(state["email"], k=2)
+        policies = [f"{p.title}: {' '.join(p.text.split())}" for p in hits]
+        return {"policies": policies, "audit_log": [f"search_policy: {len(hits)} snippets"]}
 
     def _draft_reply(self, state: State) -> dict[str, Any]:
         """Write (or rewrite) the reply, addressing reviewer and human feedback."""

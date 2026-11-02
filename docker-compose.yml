@@ -1,11 +1,12 @@
-# Full stack: Postgres + backend (REST + MCP) + frontend (nginx).
+# Full stack: Postgres + pgvector, backend (REST + MCP), frontend (nginx), MLflow (tracing + evals).
 #   copy .env.example .env   (fill in the secrets)
 #   docker compose up --build
-# Then open http://localhost:8080 (UI), http://localhost:8000/docs (API docs), http://localhost:8000/mcp (MCP).
+# Then open http://localhost:8080 (UI), http://localhost:8000/docs (API docs), http://localhost:8000/mcp (MCP),
+# http://localhost:5000 (MLflow: traces of every chat turn).
 
 services:
   db:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:pg17  # PostgreSQL 17 with the pgvector extension for the knowledge base
     environment:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
@@ -25,15 +26,24 @@ services:
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       DEMO_PASSWORD: ${DEMO_PASSWORD:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
       PUBLIC_URL: http://localhost:8000
       CORS_ORIGINS: '["http://localhost:8080", "http://localhost:5173"]'
       MCP_ALLOWED_HOSTS: '["localhost:*", "127.0.0.1:*", "backend:*"]'
+      MLFLOW_TRACKING_URI: http://mlflow:5000
     depends_on:
       db:
         condition: service_healthy
+      mlflow:
+        condition: service_healthy
     ports:
       - "8000:8000"
+
+  mlflow:
+    build: ./ops/mlflow
+    volumes:
+      - mlflowdata:/data
+    ports:
+      - "127.0.0.1:5000:5000"  # internal tool: traces contain personal data, so only reachable from this machine
 
   frontend:
     build: ./frontend
@@ -41,7 +51,8 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - "8080:80"
+      - "8080:8080"
 
 volumes:
   pgdata:
+  mlflowdata:

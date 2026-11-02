@@ -48,7 +48,7 @@ def test_wrong_password_is_401(client: TestClient) -> None:
 def test_me_and_workflows(client: TestClient, auth_headers: dict[str, str]) -> None:
     assert client.get("/api/v1/auth/me", headers=auth_headers).json()["username"] == "demo"
     workflows = client.get("/api/v1/workflows", headers=auth_headers).json()
-    assert [w["id"] for w in workflows] == ["weather", "support"]
+    assert [w["id"] for w in workflows] == ["weather", "support", "policy"]
 
 
 def test_full_support_flow_over_http(client: TestClient, auth_headers: dict[str, str]) -> None:
